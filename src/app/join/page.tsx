@@ -1,14 +1,64 @@
 'use client';
 
-import { useState } from 'react';
-import { io } from 'socket.io-client';
+import { useState, useEffect } from 'react';
+import { io, Socket } from 'socket.io-client';
+import { useRouter } from 'next/navigation';
 
 export default function JoinRoom() {
   const [username, setUsername] = useState('');
   const [roomId, setRoomId] = useState('');
   const [error, setError] = useState('');
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    const newSocket = io('http://localhost:3001', {
+      transports: ['websocket'],
+      reconnection: true
+    });
+    
+    console.log('[JoinRoom] Connecting to server...');
+    setSocket(newSocket);
+
+    newSocket.on('connect', () => {
+      console.log('[JoinRoom] Connected to server with socket ID:', newSocket.id);
+    });
+
+    newSocket.on('disconnect', (reason) => {
+      console.log('[JoinRoom] Disconnected from server. Reason:', reason);
+    });
+
+    return () => {
+      console.log('[JoinRoom] Cleaning up socket connection');
+      newSocket.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleError = (message: string) => {
+      console.error('[JoinRoom] Socket error:', message);
+      setError(message);
+    };
+
+    socket.on('error', handleError);
+    socket.on('roomNotFound', () => handleError('Room not found'));
+    socket.on('roomFull', () => handleError('Room is full'));
+
+    return () => {
+      socket.off('error');
+      socket.off('roomNotFound');
+      socket.off('roomFull');
+    };
+  }, [socket]);
 
   const handleJoinRoom = async () => {
+    if (!socket) {
+      setError('Connection to server failed');
+      return;
+    }
+
     if (!username.trim()) {
       setError('Username is required');
       return;
@@ -19,19 +69,35 @@ export default function JoinRoom() {
       return;
     }
 
-    const socket = io('http://localhost:3001');
+    const trimmedRoomId = roomId.trim();
+    const trimmedUsername = username.trim();
+
+    console.log('[JoinRoom] Attempting to join room:', trimmedRoomId, 'with username:', trimmedUsername);
     
-    socket.on('connect', () => {
-      socket.emit('joinRoom', { roomId, username });
-    });
+    try {
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          socket.off('roomJoined');
+          setError('Connection timeout - please try again');
+          resolve();
+        }, 5000);
 
-    socket.on('playerJoined', () => {
-      window.location.href = `/game/${roomId}?username=${encodeURIComponent(username)}`;
-    });
+        socket.once('roomJoined', () => {
+          clearTimeout(timeout);
+          console.log('[JoinRoom] Successfully joined room. Redirecting...');
+          router.push(`/game/${trimmedRoomId}?username=${encodeURIComponent(trimmedUsername)}`);
+          resolve();
+        });
 
-    socket.on('error', (message) => {
-      setError(message);
-    });
+        socket.emit('joinRoom', { 
+          roomId: trimmedRoomId, 
+          username: trimmedUsername 
+        });
+      });
+    } catch (error) {
+      console.error('[JoinRoom] Error joining room:', error);
+      setError('Failed to join room - please try again');
+    }
   };
 
   return (
@@ -83,7 +149,7 @@ export default function JoinRoom() {
           </button>
 
           <button
-            onClick={() => window.location.href = '/'}
+            onClick={() => router.push('/')}
             className="w-full py-3 px-4 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium transition-colors"
           >
             Back to Home

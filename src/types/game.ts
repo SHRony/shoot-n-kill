@@ -4,6 +4,7 @@ export interface Player {
   rotation: number;
   health: number;
   username: string;
+  isCreator?: boolean;
 }
 
 export interface Vector2D {
@@ -29,4 +30,11 @@ export interface RoomInfo {
   players: Player[];
   status: 'waiting' | 'playing';
   creatorId: string;
+}
+
+export interface Socket<T = any> {
+  emit: (event: string, ...args: any[]) => void;
+  on: (event: string, callback: (...args: any[]) => void) => void;
+  off: (event: string, callback?: (...args: any[]) => void) => void;
+  id?: string;
 }
